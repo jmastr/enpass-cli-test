@@ -43,7 +43,7 @@ func (v *Vault) openEncryptedDatabase(path string, key []byte) (*sql.DB, error) 
 	return db, nil
 }
 
-func OpenVault(path string, keyfile string, masterPassword []byte) (*Vault, error) {
+func OpenVault(path string, keyfilePath string, masterPassword []byte) (*Vault, error) {
 	vault := Vault{
 		databaseFilename: path,
 		vaultInfoFilename: filepath.Dir(path) + "/" + vaultInfoFileName,
@@ -56,14 +56,29 @@ func OpenVault(path string, keyfile string, masterPassword []byte) (*Vault, erro
 
 	vault.vaultInfo = vaultInfo
 
-	if keyfile == "" && vaultInfo.HasKeyfile == 1 {
+	if keyfilePath == "" && vaultInfo.HasKeyfile == 1 {
 		return nil, errors.New("you should specify a keyfile")
 	} else
-	if keyfile != "" && vaultInfo.HasKeyfile  == 0 {
+	if keyfilePath != "" && vaultInfo.HasKeyfile  == 0 {
 		return nil, errors.New("you are not currently using a keyfile")
 	}
 
-	derivedKey, err := vault.deriveKey(masterPassword, keyfile)
+	var keyfileBytes []byte
+	if keyfilePath != "" {
+		keyfile, err := loadKeyFile(keyfilePath)
+		if err != nil {
+			return nil, err
+		}
+
+		keyfileBytes, err = hex.DecodeString(keyfile.Key)
+		if err != nil {
+			return nil, errors.New("could not decode keyfile")
+		}
+
+		log.Printf("%d", len(keyfileBytes))
+	}
+
+	derivedKey, err := vault.deriveKey(masterPassword, keyfileBytes)
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("could not generate key: %v", err))
 	}
@@ -89,12 +104,10 @@ func (v *Vault) GetTables() {
 	for rows.Next() {
 		log.Println("line")
 		var interf1 interface{}
-		var interf2 interface{}
-		var interf3 interface{}
-		if err := rows.Scan(&interf1, &interf2, &interf3); err != nil {
+		if err := rows.Scan(&interf1); err != nil {
 			log.Fatalf("%v", err)
 		}
 
-		log.Printf("%s\n%s\n%s\n", interf1, interf2, interf3)
+		log.Printf("%s\n", interf1)
 	}
 }

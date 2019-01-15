@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"golang.org/x/crypto/pbkdf2"
-	"io/ioutil"
 )
 
 const (
@@ -17,17 +16,7 @@ const (
 )
 
 // deriveKey : generate the SQLCipher crypto key, possibly with the 64-bit Keyfile
-func (v *Vault) deriveKey(masterPassword []byte, keyFile string) (dk []byte, err error) {
-	var salt []byte
-
-	// use keyfile if available
-	if keyFile != "" {
-		salt, err = ioutil.ReadFile(keyFile)
-		if err != nil {
-			return nil, err
-		}
-	}
-
+func (v *Vault) deriveKey(masterPassword []byte, keyFile []byte) (dk []byte, err error) {
 	if v.vaultInfo.KDFAlgo != keyDerivationAlgo {
 		return nil, errors.New("key derivation algo has changed, open up a github issue")
 	}
@@ -37,5 +26,5 @@ func (v *Vault) deriveKey(masterPassword []byte, keyFile string) (dk []byte, err
 	}
 
 	// PBKDF2- HMAC-SHA256
-	return pbkdf2.Key(masterPassword, salt, v.vaultInfo.KDFIterations, masterKeyLength, sha256.New), nil
+	return pbkdf2.Key(masterPassword, keyFile, v.vaultInfo.KDFIterations, masterKeyLength, sha256.New), nil
 }
