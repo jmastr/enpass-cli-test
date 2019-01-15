@@ -1,13 +1,11 @@
 package enpasscli
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
 	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	_ "github.com/xeodou/go-sqlcipher"
+	_ "github.com/mutecomm/go-sqlcipher"
 	"log"
 	"path/filepath"
 )
@@ -34,47 +32,12 @@ type Vault struct {
 	vaultInfo *VaultInfo
 }
 
-func deccrypt(input []byte, key []byte) {
-
-	block, err := aes.NewCipher(key)
-
-	if err != nil {
-
-		panic(err.Error())
-
-	}
-
-
-	aesgcm, err := cipher.NewGCM(block)
-
-	if err != nil {
-
-		panic(err.Error())
-
-	}
-
-
-	plaintext, err := aesgcm.Open(nil, input[:16], input[16:], nil)
-
-	if err != nil {
-
-		panic(err.Error())
-
-	}
-
-
-	fmt.Printf("%s\n", plaintext)
-}
-
 func (v *Vault) openEncryptedDatabase(path string, key []byte) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", path)
+	dbname := fmt.Sprintf("db?file=%s&_pragma_key=x'%s'", path, hex.EncodeToString(key))
+
+	db, err := sql.Open("sqlite3", dbname)
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("open error: %v", err))
-	}
-
-	_, err = db.Exec(fmt.Sprintf(`PRAGMA key = "x'%s'"`, hex.EncodeToString(key)))
-	if err != nil {
-		return nil, errors.New(fmt.Sprintf("pragma error: %v", err))
 	}
 
 	return db, nil
@@ -120,15 +83,18 @@ func (v *Vault) Close() {
 }
 
 func (v *Vault) GetTables() {
-	rows, err := v.db.Query(`SELECT name FROM my_db.sqlite_master WHERE type='table';`)
+	rows, err := v.db.Query("SELECT name FROM sqlite_master;")
 	if err != nil { log.Fatal(err) }
 
 	for rows.Next() {
-		var row sql.Row
-		if err := rows.Scan(row); err != nil {
+		log.Println("line")
+		var interf1 interface{}
+		var interf2 interface{}
+		var interf3 interface{}
+		if err := rows.Scan(&interf1, &interf2, &interf3); err != nil {
 			log.Fatalf("%v", err)
 		}
 
-		log.Printf("%v\n", row)
+		log.Printf("%s\n%s\n%s\n", interf1, interf2, interf3)
 	}
 }
