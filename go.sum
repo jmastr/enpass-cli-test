@@ -1,0 +1,4 @@
+github.com/xeodou/go-sqlcipher v0.0.0-20180523161204-7f9cd319987f h1:+G16VLt+1NlrpOg/1ECvQybMsI0mnYz4OOQwXit5QzI=
+github.com/xeodou/go-sqlcipher v0.0.0-20180523161204-7f9cd319987f/go.mod h1:vxgnuyTPQm6z5pRcHDe/jkd/XzIfvBplp1FGWcUvGus=
+golang.org/x/crypto v0.0.0-20190103213133-ff983b9c42bc h1:F5tKCVGp+MUAHhKp5MZtGqAlGX3+oCsiL1Q629FL90M=
+golang.org/x/crypto v0.0.0-20190103213133-ff983b9c42bc/go.mod h1:6SG95UA2DQfeDnfUPMdvaQW0Q7yPrPDi9nlGo2tz2b4=
