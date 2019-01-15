@@ -1,0 +1,17 @@
+{
+    "creating_device": "100130620",
+    "encryption_algo": "aes-256-cbc",
+    "have_keyfile": 0,
+    "kdf_algo": "pbkdf2",
+    "kdf_iter": 100000,
+    "last_modified_device": "100130620",
+    "last_modified_time": 1547538584,
+    "last_password_changed_time": 1547538537,
+    "last_password_changing_device": "100130620",
+    "vault_att_count": 0,
+    "vault_icon": "vault/v2",
+    "vault_items_count": 1,
+    "vault_name": "Primary",
+    "vault_uuid": "primary",
+    "version": 6
+}
