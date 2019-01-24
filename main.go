@@ -13,5 +13,6 @@ func main() {
 
 	defer enpass.Close()
 
+	log.Println("printing tables")
 	enpass.GetTables()
 }

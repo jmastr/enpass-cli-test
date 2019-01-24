@@ -1,9 +1,12 @@
 package enpasscli
 
 import (
-	"crypto/sha256"
+	"bufio"
+	"crypto/sha512"
+	"encoding/hex"
 	"errors"
 	"golang.org/x/crypto/pbkdf2"
+	"os"
 )
 
 const (
@@ -11,20 +14,43 @@ const (
 	keyDerivationAlgo = "pbkdf2"
 	// current database encryption algo
 	dbEncryptionAlgo = "aes-256-cbc"
-	// AES-256
-	masterKeyLength = 32
+	// database key salt length
+	saltLength = 16
+	// length of the database master key (capped)
+	masterKeyLength = 64
 )
 
+// extractSalt : extract the encryption salt stored in the database
+func (v *Vault) extractSalt(databasePath string) (bytesSalt []byte, err error) {
+	f, err := os.Open(databasePath)
+	if err != nil {
+		return []byte{}, err
+	}
+	defer f.Close()
+
+	bytesSalt, err = bufio.NewReader(f).Peek(saltLength)
+	if err != nil {
+		return []byte{}, err
+	}
+
+	return bytesSalt, err
+}
+
 // deriveKey : generate the SQLCipher crypto key, possibly with the 64-bit Keyfile
-func (v *Vault) deriveKey(masterPassword []byte, keyFile []byte) (dk []byte, err error) {
+func (v *Vault) deriveKey(masterPassword []byte, salt []byte) (resultKey string, err error) {
 	if v.vaultInfo.KDFAlgo != keyDerivationAlgo {
-		return nil, errors.New("key derivation algo has changed, open up a github issue")
+		return "", errors.New("key derivation algo has changed, open up a github issue")
 	}
 
 	if v.vaultInfo.EncryptionAlgo != dbEncryptionAlgo {
-		return nil, errors.New("database encryption algo has changed, open up a github issue")
+		return "", errors.New("database encryption algo has changed, open up a github issue")
 	}
 
 	// PBKDF2- HMAC-SHA256
-	return pbkdf2.Key(masterPassword, keyFile, v.vaultInfo.KDFIterations, masterKeyLength, sha256.New), nil
+	key := pbkdf2.Key(masterPassword, salt, v.vaultInfo.KDFIterations, sha512.Size, sha512.New)
+
+	hexKey := make([]byte, hex.EncodedLen(sha512.Size))
+	hex.Encode(hexKey, key)
+
+	return string(hexKey)[:masterKeyLength], nil
 }

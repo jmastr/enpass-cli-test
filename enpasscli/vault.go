@@ -2,7 +2,6 @@ package enpasscli
 
 import (
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	_ "github.com/mutecomm/go-sqlcipher"
@@ -32,8 +31,8 @@ type Vault struct {
 	vaultInfo *VaultInfo
 }
 
-func (v *Vault) openEncryptedDatabase(path string, key []byte) (*sql.DB, error) {
-	dbname := fmt.Sprintf("db?file=%s&_pragma_key=x'%s'", path, hex.EncodeToString(key))
+func (v *Vault) openEncryptedDatabase(path string, hexKey string) (*sql.DB, error) {
+	dbname := fmt.Sprintf("db?file=%s&_pragma_key=x'%s'", path, hexKey)
 
 	db, err := sql.Open("sqlite3", dbname)
 	if err != nil {
@@ -43,10 +42,10 @@ func (v *Vault) openEncryptedDatabase(path string, key []byte) (*sql.DB, error) 
 	return db, nil
 }
 
-func OpenVault(path string, keyfilePath string, masterPassword []byte) (*Vault, error) {
+func OpenVault(databasePath string, keyfilePath string, masterPassword []byte) (*Vault, error) {
 	vault := Vault{
-		databaseFilename: path,
-		vaultInfoFilename: filepath.Dir(path) + "/" + vaultInfoFileName,
+		databaseFilename: databasePath,
+		vaultInfoFilename: filepath.Dir(databasePath) + "/" + vaultInfoFileName,
 	}
 
 	vaultInfo, err := loadVaultInfo(vault.vaultInfoFilename)
@@ -63,6 +62,7 @@ func OpenVault(path string, keyfilePath string, masterPassword []byte) (*Vault, 
 		return nil, errors.New("you are not currently using a keyfile")
 	}
 
+	/*
 	var keyfileBytes []byte
 	if keyfilePath != "" {
 		keyfile, err := loadKeyFile(keyfilePath)
@@ -76,14 +76,19 @@ func OpenVault(path string, keyfilePath string, masterPassword []byte) (*Vault, 
 		}
 
 		log.Printf("%d", len(keyfileBytes))
+	}*/
+
+	salt, err := vault.extractSalt(databasePath)
+	if err != nil {
+		return nil, errors.New(fmt.Sprintf("could not extract database key salt: %v", err))
 	}
 
-	derivedKey, err := vault.deriveKey(masterPassword, keyfileBytes)
+	derivedKey, err := vault.deriveKey(masterPassword, salt)
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("could not generate key: %v", err))
 	}
 
-	db, err := vault.openEncryptedDatabase(path, derivedKey)
+	db, err := vault.openEncryptedDatabase(databasePath, derivedKey)
 	if err != nil {
 		return nil, errors.New(fmt.Sprintf("could not open vault: %v", err))
 	}
@@ -98,7 +103,7 @@ func (v *Vault) Close() {
 }
 
 func (v *Vault) GetTables() {
-	rows, err := v.db.Query("SELECT name FROM sqlite_master;")
+	rows, err := v.db.Query("SELECT * FROM Identity;")
 	if err != nil { log.Fatal(err) }
 
 	for rows.Next() {
