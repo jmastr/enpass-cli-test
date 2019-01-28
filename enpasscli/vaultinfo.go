@@ -11,7 +11,7 @@ type VaultInfo struct {
 	EncryptionAlgo 	string 		`json:"encryption_algo"`
 	HasKeyfile 		int 	  	`json:"have_keyfile"`
 	KDFAlgo 		string 		`json:"kdf_algo"`
-	KDFIterations 	int 	  	`json:"kfd_iter"`
+	KDFIterations 	int 	  	`json:"kdf_iter"`
 	VaultNumItems 	int 	  	`json:"vault_items_count"`
 	VaultName 		string      `json:"vault_name"`
 	VaultVersion 	int	  		`json:"version"`

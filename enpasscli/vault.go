@@ -1,10 +1,14 @@
 package enpasscli
 
 import (
+	"crypto/aes"
+	cipher2 "crypto/cipher"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
 	_ "github.com/mutecomm/go-sqlcipher"
+	"golang.org/x/crypto/pbkdf2"
 	"log"
 	"path/filepath"
 )
@@ -12,6 +16,8 @@ import (
 const (
 	// contains info about your vault
 	vaultInfoFileName = "vault.json"
+	// PBKDF iterations for row key
+	rowKeyIterations = 2
 )
 
 type Vault struct {
@@ -32,7 +38,7 @@ type Vault struct {
 }
 
 func (v *Vault) openEncryptedDatabase(path string, hexKey string) (*sql.DB, error) {
-	dbname := fmt.Sprintf("db?file=%s&_pragma_key=x'%s'", path, hexKey)
+	dbname := fmt.Sprintf("%s?_pragma_key=x'%s'", path, hexKey)
 
 	db, err := sql.Open("sqlite3", dbname)
 	if err != nil {
@@ -102,17 +108,61 @@ func (v *Vault) Close() {
 	v.db.Close()
 }
 
-func (v *Vault) GetTables() {
-	rows, err := v.db.Query("SELECT * FROM Identity;")
+func (v *Vault) generateRowKey(hash []byte, salt []byte) ([]byte) {
+	// PBKDF2- HMAC-SHA256
+	return pbkdf2.Key(hash, salt, rowKeyIterations, sha256.Size, sha256.New)
+}
+
+func (v *Vault) getCryptoParameters() (iv []byte, key []byte, err error) {
+	var info []byte
+	var hash []byte
+
+	row := v.db.QueryRow("SELECT Info, Hash FROM Identity;")
+	if err := row.Scan(&info, &hash); err != nil {
+		return nil, nil, err
+	}
+
+	//if len(info) != 47 {
+	//	return nil, nil, errors.New(fmt.Sprintf("row encryption info is not 47 bytes long but %d bytes", len(info)))
+	//}
+
+	// First 16 bytes are for "mHashData", which is unused
+	iv = info[17:31]
+	salt := info[32:]
+
+	key = v.generateRowKey(hash, salt)
+
+	return iv, key, nil
+}
+
+func (v *Vault) decrypt(input []byte, key []byte, iv []byte) (output []byte, err error) {
+	cipher, err := aes.NewCipher(key)
+	if err != nil { return nil, err }
+
+	decrypter := cipher2.NewCBCDecrypter(cipher, iv)
+	decrypter.CryptBlocks(output, input)
+
+	return output, nil
+}
+
+func (v *Vault) GetCards() {
+	decIv, decKey, err := v.getCryptoParameters()
+	if err != nil { log.Fatal(err) }
+
+	rows, err := v.db.Query("SELECT title, key FROM item;");
 	if err != nil { log.Fatal(err) }
 
 	for rows.Next() {
-		log.Println("line")
-		var interf1 interface{}
-		if err := rows.Scan(&interf1); err != nil {
-			log.Fatalf("%v", err)
+		var title string
+		var key []byte
+
+		if err := rows.Scan(&title, &key); err != nil {
+			log.Fatal(err)
 		}
 
-		log.Printf("%s\n", interf1)
+		decrypted, err := v.decrypt(key, decKey, decIv)
+		if err != nil { log.Fatal(err) }
+
+		log.Printf("%v", decrypted)
 	}
 }
