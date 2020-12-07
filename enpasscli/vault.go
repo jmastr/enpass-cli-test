@@ -2,15 +2,17 @@ package enpasscli
 
 import (
 	"crypto/aes"
-	cipher2 "crypto/cipher"
+	cryptocipher "crypto/cipher"
 	"crypto/sha256"
 	"database/sql"
-	"errors"
+	"encoding/hex"
 	"fmt"
-	_ "github.com/mutecomm/go-sqlcipher"
-	"golang.org/x/crypto/pbkdf2"
 	"log"
 	"path/filepath"
+
+	_ "github.com/mutecomm/go-sqlcipher/v4"
+	"github.com/pkg/errors"
+	"golang.org/x/crypto/pbkdf2"
 )
 
 const (
@@ -34,81 +36,83 @@ type Vault struct {
 	db *sql.DB
 
 	// vault.json : contains info about your vault for synchronizing
-	vaultInfo *VaultInfo
+	vaultInfo VaultInfo
 }
 
-func (v *Vault) openEncryptedDatabase(path string, hexKey string) (*sql.DB, error) {
-	dbname := fmt.Sprintf("%s?_pragma_key=x'%s'", path, hexKey)
+func (v *Vault) openEncryptedDatabase(path string, dbKey []byte) (err error) {
+	dbName := fmt.Sprintf(
+		"%s?_pragma_key=x'%s'&_pragma_cipher_page_size=4096&_pragma_cipher_compatibility=3",
+		path,
+		hex.EncodeToString(dbKey),
+	)
 
-	db, err := sql.Open("sqlite3", dbname)
+	v.db, err = sql.Open("sqlite3", dbName)
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("open error: %v", err))
+		return errors.Wrap(err, "could not open database")
 	}
 
-	return db, nil
+	return nil
 }
 
-func OpenVault(databasePath string, keyfilePath string, masterPassword []byte) (*Vault, error) {
+func generateMasterPassword(password []byte, keyfilePath string) ([]byte, error) {
+	if keyfilePath == "" {
+		if password == nil || len(password) == 0 {
+			return nil, errors.New("empty master password provided")
+		}
+
+		return password, nil
+	}
+
+	// TODO: implement keyfile
+	return nil, errors.New("keyfile not implemented yet")
+}
+
+func OpenVault(databasePath string, keyfilePath string, password []byte) (Vault, error) {
 	vault := Vault{
-		databaseFilename: databasePath,
-		vaultInfoFilename: filepath.Dir(databasePath) + "/" + vaultInfoFileName,
+		databaseFilename:  databasePath,
+		vaultInfoFilename: filepath.Join(filepath.Dir(databasePath), vaultInfoFileName),
 	}
 
 	vaultInfo, err := loadVaultInfo(vault.vaultInfoFilename)
 	if err != nil {
-		return nil, err
+		return Vault{}, err
 	}
 
 	vault.vaultInfo = vaultInfo
 
 	if keyfilePath == "" && vaultInfo.HasKeyfile == 1 {
-		return nil, errors.New("you should specify a keyfile")
-	} else
-	if keyfilePath != "" && vaultInfo.HasKeyfile  == 0 {
-		return nil, errors.New("you are not currently using a keyfile")
+		return Vault{}, errors.New("you should specify a keyfile")
+	} else if keyfilePath != "" && vaultInfo.HasKeyfile == 0 {
+		return Vault{}, errors.New("you are not currently using a keyfile")
 	}
 
-	/*
-	var keyfileBytes []byte
-	if keyfilePath != "" {
-		keyfile, err := loadKeyFile(keyfilePath)
-		if err != nil {
-			return nil, err
-		}
-
-		keyfileBytes, err = hex.DecodeString(keyfile.Key)
-		if err != nil {
-			return nil, errors.New("could not decode keyfile")
-		}
-
-		log.Printf("%d", len(keyfileBytes))
-	}*/
-
-	salt, err := vault.extractSalt(databasePath)
+	masterPassword, err := generateMasterPassword(password, keyfilePath)
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("could not extract database key salt: %v", err))
+		return Vault{}, errors.Wrap(err, "could not generate vault unlock key")
 	}
 
-	derivedKey, err := vault.deriveKey(masterPassword, salt)
+	keySalt, err := vault.extractSalt(databasePath)
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("could not generate key: %v", err))
+		return Vault{}, errors.Wrap(err, "could not get master password salt")
 	}
 
-	db, err := vault.openEncryptedDatabase(databasePath, derivedKey)
+	fullKey, err := vault.deriveKey(masterPassword, keySalt)
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("could not open vault: %v", err))
+		return Vault{}, errors.Wrap(err, "could not derive master key from master password")
 	}
 
-	vault.db = db
+	if err := vault.openEncryptedDatabase(databasePath, fullKey); err != nil {
+		return Vault{}, errors.Wrap(err, "could not open vault")
+	}
 
-	return &vault, nil
+	return vault, nil
 }
 
 func (v *Vault) Close() {
 	v.db.Close()
 }
 
-func (v *Vault) generateRowKey(hash []byte, salt []byte) ([]byte) {
+func (v *Vault) generateRowKey(hash []byte, salt []byte) []byte {
 	// PBKDF2- HMAC-SHA256
 	return pbkdf2.Key(hash, salt, rowKeyIterations, sha256.Size, sha256.New)
 }
@@ -117,9 +121,9 @@ func (v *Vault) getCryptoParameters() (iv []byte, key []byte, err error) {
 	var info []byte
 	var hash []byte
 
-	row := v.db.QueryRow("SELECT Info, Hash FROM Identity;")
+	row := v.db.QueryRow("SELECT i.title, i.uuid, i.key, if.value, if.hash FROM item i, itemfield if")
 	if err := row.Scan(&info, &hash); err != nil {
-		return nil, nil, err
+		return nil, nil, errors.Wrap(err, "could not query crypto parameters")
 	}
 
 	//if len(info) != 47 {
@@ -137,20 +141,26 @@ func (v *Vault) getCryptoParameters() (iv []byte, key []byte, err error) {
 
 func (v *Vault) decrypt(input []byte, key []byte, iv []byte) (output []byte, err error) {
 	cipher, err := aes.NewCipher(key)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 
-	decrypter := cipher2.NewCBCDecrypter(cipher, iv)
+	decrypter := cryptocipher.NewCBCDecrypter(cipher, iv)
 	decrypter.CryptBlocks(output, input)
 
 	return output, nil
 }
 
-func (v *Vault) GetCards() {
+func (v *Vault) GetCards() error {
 	decIv, decKey, err := v.getCryptoParameters()
-	if err != nil { log.Fatal(err) }
+	if err != nil {
+		return errors.Wrap(err, "could not retrieve crypto parameters")
+	}
 
-	rows, err := v.db.Query("SELECT title, key FROM item;");
-	if err != nil { log.Fatal(err) }
+	rows, err := v.db.Query("SELECT title, key FROM item;")
+	if err != nil {
+		return errors.Wrap(err, "could not retrieve cards")
+	}
 
 	for rows.Next() {
 		var title string
@@ -161,8 +171,12 @@ func (v *Vault) GetCards() {
 		}
 
 		decrypted, err := v.decrypt(key, decKey, decIv)
-		if err != nil { log.Fatal(err) }
+		if err != nil {
+			log.Fatal(err)
+		}
 
 		log.Printf("%v", decrypted)
 	}
+
+	return nil
 }

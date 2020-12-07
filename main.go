@@ -6,13 +6,13 @@ import (
 )
 
 func main() {
-	enpass, err := enpasscli.OpenVault("vault.enpassdb", "", []byte("mypassword"))
+	enpass, err := enpasscli.OpenVault("vault.enpassdb", "", []byte("mymasterpassword"))
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("could not open vault: %v", err)
 	}
 
 	defer enpass.Close()
 
 	log.Println("printing tables")
-	enpass.GetCards()
+	log.Fatal(enpass.GetCards())
 }
